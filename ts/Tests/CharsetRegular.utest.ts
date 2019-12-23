@@ -1,4 +1,4 @@
-import {CharsetRegular,StringTextReader,RegularContext, IRegularMatch} from '../YA.syntax'
+import {CharsetRegular,LiteralRegular,SequenceRegular,RegularContext, OptionalRegular} from '../YA.syntax'
 
 
 export interface ITestLogger{
@@ -8,6 +8,18 @@ export interface ITestLogger{
     assert(condition:boolean,msg:string);
     error(msg:string,err?:Error);
     warn(msg:string);
+}
+
+export class UnittestError extends Error{
+    outerMessage:string;
+    constructor(msg:string,outerMessage?:string){
+        super(msg);
+        this.outerMessage=outerMessage;
+    }
+    toString(){
+        if(this.outerMessage) return this.outerMessage;
+        return super.toString();
+    }
 }
 
 export class Unittest{
@@ -45,9 +57,10 @@ export class Unittest{
         let count = 0;
         this._$logger.beginGroup(`{${this.$NAME}}`);
         let assert =(actual?:any,expected?:any,msg?:string,paths?:string[])=>{
+            if(!paths && msg) msg = msg.replace(/\{actual\}/g,JSON.stringify(actual)).replace(/\{expected\}/g,JSON.stringify(expected));
             if(actual===expected) {
                 if(!Unittest.hiddenSteps && msg && !paths){
-                    this._$logger.info(msg.replace(/\{actual\}/g,JSON.stringify(actual)).replace(/\{expected\}/g,JSON.stringify(expected)));
+                    this._$logger.info(msg);
                 }
                 return;
             }
@@ -56,7 +69,7 @@ export class Unittest{
             if(t==="object"){
                 paths||(paths=[]);
                 //let nullMsg = msg || "期望有值";
-                if(!actual) throw new Error(paths.join(".")+"不应为空.");
+                if(!actual) throw new UnittestError(paths.join(".")+"不应为空.",msg);
 
                 for(let n in expected){
                     paths.push(n);
@@ -66,19 +79,19 @@ export class Unittest{
                         assert(actualValue,expectedValue,msg,paths);
                     }else {
                         if(actualValue!==expectedValue){
-                            throw new Error(`${paths.join(".")}期望值为${expectedValue},实际为${actualValue}`);
+                            throw new UnittestError(`${paths.join(".")}期望值为${expectedValue},实际为${actualValue}`,msg);
                         }
                     }
                     paths.pop();
                 }
                 if(!Unittest.hiddenSteps && msg && !paths.length){
-                    this._$logger.info(msg.replace(/\{actual\}/g,JSON.stringify(actual)).replace(/\{expected\}/g,JSON.stringify(expected)));
+                    this._$logger.info(msg);
                 }
             }else if(actual!==expected){
-                throw new Error(`${paths.join(".")}期望值为${actual},实际为${expected}`);
+                throw new UnittestError(`${paths.join(".")}期望值为${actual},实际为${expected}`,msg);
             }else {
                 if(!Unittest.hiddenSteps && msg && !paths){
-                    this._$logger.info(msg.replace(/\{actual\}/g,JSON.stringify(actual)).replace(/\{expected\}/g,JSON.stringify(expected)));
+                    this._$logger.info(msg);
                 }
             }
         }
@@ -100,7 +113,7 @@ export class Unittest{
                 
             }catch(ex){
                 this._$members[name]=false;
-                let msg = ex.toString();
+                let msg = ex.outerMessage || ex.toString();
                 this._$errors.push({
                     Message:msg,
                     Exception:ex,
@@ -111,7 +124,7 @@ export class Unittest{
             this._$logger.endGroup();
             
         }
-        this._$errors.length?this._$logger.warn(`结束测试{${this.$NAME}},错误率:${this._$errors.length}/${count}=${this._$errors.length*100/count}%.`):this._$logger.info(`结束测试{${this.$NAME}},错误率:0%.`);
+        this._$errors.length?this._$logger.warn(`结束测试{${this.$NAME}},错误率:${this._$errors.length}/${count}=${this._$errors.length*100/count}%.`):this._$logger.info(`结束测试{${this.$NAME}},错误率:${this._$errors.length}/${count}=0%..`);
         this._$logger.endGroup();
         return this._$errors;
     }
@@ -132,7 +145,7 @@ export class Unittest{
 
 
 Unittest.Test("CharsetRegular",{
-    "Basic":(assert:(actual:any,expected:any,message?:string)=>any,info:(msg:string,variable?:any)=>any)=>{
+    "Charset":(assert:(actual:any,expected:any,message?:string)=>any,info:(msg:string,variable?:any)=>any)=>{
         let reg = new CharsetRegular("A");
         let expected ={at:0,length:1};
         
@@ -239,6 +252,51 @@ Unittest.Test("CharsetRegular",{
         rs = reg.Match(ctx);
         assert(rs,expected,`测试min,max中间的:/${reg}/.match("${ctx}")=={expected}`);
 
+        reg = new CharsetRegular("A",{minTimes:1});
+        ctx = new RegularContext("AAA");
+        expected.length=3;
+        rs = reg.Match(ctx);
+        assert(rs,expected,`测试*到EOF:/${reg}/.match("${ctx}")=={expected}`);
+    }
+    ,"Literal":(assert)=>{
+        let expected ={at:0,length:5};
+        let reg = new LiteralRegular("Hello");
+        let ctx = new RegularContext("Hallo,Yi.");
+        let rs = reg.Match(ctx);
+        assert(rs,null,`测试字符串不匹配:/${reg}/.match("${ctx}")=={expected}`);
+
+        ctx = new RegularContext("Hello,Yi.");
+        rs = reg.Match(ctx);
+        assert(rs,expected,`测试字符串匹配:/${reg}/.match("${ctx}")=={expected}`);
+        reg = new LiteralRegular("Hello",{minTimes:1,maxTimes:3});
+        ctx = new RegularContext("HelloHelloHelloHello.");
+        expected ={at:0,length:15};
+        rs = reg.Match(ctx);
+        assert(rs,expected,`测试字符串匹配:/${reg}/.match("${ctx}")=={expected}`);
+    }
+
+    ,"Sequence":(assert)=>{
+        let expected ={at:0,length:3};
+        let reg = new SequenceRegular();
+        reg.Charset("1-9",{minTimes:0}).Literal(",").Charset("abc",{minTimes:1});
+        let ctx = new RegularContext("1,d");
+        let rs = reg.Match(ctx);
+        assert(rs,null,`测试序列不匹配:/${reg}/.match("${ctx}")=={expected}`);
+
+        ctx = new RegularContext(",bb");
+        rs = reg.Match(ctx);
+        assert(rs,expected,`测试序列匹配:/${reg}/.match("${ctx}")=={expected}`);
         
+        reg = new SequenceRegular({minTimes:2});
+        reg.Charset("1-9",{minTimes:0}).Literal(",q").Charset("abc",{minTimes:1});
+        ctx = new RegularContext(",qbb21,qc,qca4,qbq");
+        rs = reg.Match(ctx);
+        assert(rs,{at:0,length:17},`测试序列匹配:/${reg}/.match("${ctx}")=={expected}`);
+        
+    }
+    ,"optional":(assert)=>{
+        let reg = new OptionalRegular();
+        reg.Charset("1-9",{minTimes:0}).Literal(",").Charset("abc",{minTimes:1});
+        let ctx = new RegularContext("1,d");
     }
 });
