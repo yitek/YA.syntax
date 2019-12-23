@@ -1,3 +1,21 @@
+export declare enum RegularMatchResults {
+    /**
+     * 不确定,中间态
+     */
+    Unkcertain = 0,
+    /**
+     *已经匹配,最终态
+        */
+    Matched = 1,
+    /**
+     * 不匹配 ，终态
+     */
+    NotMatch = 2,
+    /**
+     * 空匹配,终态
+     */
+    Empty = 3,
+}
 /**
  * 文本阅读器
  *
@@ -32,15 +50,7 @@ export interface ITextReader {
      * @returns {number}
      * @memberof ITextReader
      */
-    fetech(): number;
-    /**
-     * 推回一个字符
-     *
-     * @param {number} ch
-     * @returns {ITextReader}
-     * @memberof ITextReader
-     */
-    pushback(ch: number): ITextReader;
+    fetech(handler: (ch: number) => RegularMatchResults): RegularMatchResults;
     EOF: boolean;
 }
 /**
@@ -64,8 +74,7 @@ export declare class StringTextReader implements ITextReader {
      * @returns {number}
      * @memberof ITextReader
      */
-    fetech(): number;
-    pushback(ch: number): ITextReader;
+    fetech(handler: (ch: number) => RegularMatchResults): RegularMatchResults;
     toString(): string;
 }
 export interface IRegularDescriptor {
@@ -74,24 +83,6 @@ export interface IRegularDescriptor {
     times?: number;
     navigate?: boolean;
     token?: string;
-}
-export declare enum RegularMatchResults {
-    /**
-     * 不确定,中间态
-     */
-    Unkcertain = 0,
-    /**
-     *已经匹配,最终态
-        */
-    Matched = 1,
-    /**
-     * 不匹配 ，终态
-     */
-    NotMatch = 2,
-    /**
-     * 空匹配,终态
-     */
-    Empty = 3,
 }
 export interface IRegularMatch {
     at: number;
@@ -120,18 +111,39 @@ export declare class Regular {
     Reset(): Regular;
     Match(ctx: IRegularContext): IRegularMatch;
     CheckMatch(input: ITextReader): RegularMatchResults;
-    protected InternalCheck(ch: number): RegularMatchResults;
+    InternalCheck(input: ITextReader): RegularMatchResults;
     toString(braced?: boolean): string;
 }
 export declare class CharsetRegular extends Regular {
-    _navigate: boolean;
+    private _navigate;
     Chars: string;
-    _code: number;
-    _minCode: number;
-    _maxCode: number;
+    private _code;
+    private _minCode;
+    private _maxCode;
     constructor(chars: string, des?: IRegularDescriptor | boolean | number | string);
-    _CheckChar(ch: number): RegularMatchResults;
-    _CheckRange(ch: number): RegularMatchResults;
-    _Check(ch: number): RegularMatchResults;
+    _CheckChar(input: ITextReader): RegularMatchResults;
+    _CheckRange(input: ITextReader): RegularMatchResults;
+    _Check(input: ITextReader): RegularMatchResults;
     toString(): string;
+}
+export declare class LiteralRegular extends Regular {
+    Chars: string;
+    private _matchAt;
+    constructor(chars: string, des?: IRegularDescriptor | number);
+    Reset(): LiteralRegular;
+    InternalCheck(input: ITextReader): RegularMatchResults;
+    toString(braced?: boolean): string;
+}
+export declare class PolyRegular extends Regular {
+    Regulars: Regular[];
+    constructor(des?: IRegularDescriptor | number);
+    Charset(chars: string, des?: IRegularDescriptor | number): PolyRegular;
+    Literal(chars: string, des?: IRegularDescriptor | number): PolyRegular;
+}
+export declare class SequenceRegular extends PolyRegular {
+    _stepAt: number;
+    constructor(des?: IRegularDescriptor | number);
+    Reset(): SequenceRegular;
+    InternalCheck(input: ITextReader): RegularMatchResults;
+    toString(braced?: boolean): string;
 }

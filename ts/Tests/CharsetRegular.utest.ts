@@ -1,4 +1,4 @@
-import {CharsetRegular,StringTextReader,RegularContext, IRegularMatch} from '../YA.syntax'
+import {CharsetRegular,LiteralRegular,SequenceRegular,RegularContext, IRegularMatch} from '../YA.syntax'
 
 
 export interface ITestLogger{
@@ -132,7 +132,7 @@ export class Unittest{
 
 
 Unittest.Test("CharsetRegular",{
-    "Basic":(assert:(actual:any,expected:any,message?:string)=>any,info:(msg:string,variable?:any)=>any)=>{
+    "Charset":(assert:(actual:any,expected:any,message?:string)=>any,info:(msg:string,variable?:any)=>any)=>{
         let reg = new CharsetRegular("A");
         let expected ={at:0,length:1};
         
@@ -238,7 +238,34 @@ Unittest.Test("CharsetRegular",{
         expected.length=2;
         rs = reg.Match(ctx);
         assert(rs,expected,`测试min,max中间的:/${reg}/.match("${ctx}")=={expected}`);
+    }
+    ,"Literal":(assert)=>{
+        let expected ={at:0,length:5};
+        let reg = new LiteralRegular("Hello");
+        let ctx = new RegularContext("Hallo,Yi.");
+        let rs = reg.Match(ctx);
+        assert(rs,null,`测试字符串不匹配:/${reg}/.match("${ctx}")=={expected}`);
 
-        
+        ctx = new RegularContext("Hello,Yi.");
+        rs = reg.Match(ctx);
+        assert(rs,expected,`测试字符串匹配:/${reg}/.match("${ctx}")=={expected}`);
+        reg = new LiteralRegular("Hello",{minTimes:1,maxTimes:3});
+        ctx = new RegularContext("HelloHelloHelloHello.");
+        expected ={at:0,length:15};
+        rs = reg.Match(ctx);
+        assert(rs,expected,`测试字符串匹配:/${reg}/.match("${ctx}")=={expected}`);
+    }
+
+    ,"Sequence":(assert)=>{
+        let expected ={at:0,length:3};
+        let reg = new SequenceRegular();
+        reg.Charset("1-9",{minTimes:0}).Literal(",").Charset("abc",{minTimes:1});
+        let ctx = new RegularContext("1,d");
+        let rs = reg.Match(ctx);
+        assert(rs,null,`测试序列不匹配:/${reg}/.match("${ctx}")=={expected}`);
+
+        ctx = new RegularContext(",bb");
+        rs = reg.Match(ctx);
+        assert(rs,expected,`测试序列匹配:/${reg}/.match("${ctx}")=={expected}`);
     }
 });

@@ -1,4 +1,25 @@
+export enum RegularMatchResults{
+    
+    /**
+     * 不确定,中间态
+     */
+    Unkcertain,
 
+    /**
+     *已经匹配,最终态
+        */
+    Matched,
+
+    /** 
+     * 不匹配 ，终态
+     */
+    NotMatch,
+
+    /**
+     * 空匹配,终态
+     */
+    Empty
+}
 
 /**
  * 文本阅读器
@@ -37,16 +58,8 @@ export interface ITextReader{
      * @returns {number}
      * @memberof ITextReader
      */
-    fetech():number;
+    fetech(handler:(ch:number)=>RegularMatchResults):RegularMatchResults;
 
-    /**
-     * 推回一个字符
-     *
-     * @param {number} ch
-     * @returns {ITextReader}
-     * @memberof ITextReader
-     */
-    pushback(ch:number):ITextReader;
 
     EOF:boolean;
 }
@@ -79,29 +92,22 @@ export class StringTextReader implements ITextReader{
      * @returns {number}
      * @memberof ITextReader
      */
-    fetech():number{
-        
-        if(this._pushedbackChar){
-            let ch = this._pushedbackChar;
-            this._pushedbackChar=undefined;
-            this.at++
-            return ch;
+    fetech(handler:(ch:number)=>RegularMatchResults):RegularMatchResults{
+        let ch :number;
+        if(this.at===this.raw.length) { this.EOF = true;ch = this.end;return RegularMatchResults.NotMatch;}
+        else {
+            ch= this.raw.charCodeAt(this.at++);
+            if(ch===13) this.line++;
         }
-        if(this.at>=this.raw.length) { this.EOF = true;return this.end;}
-        let ch= this.raw.charCodeAt(this.at++);
-        if(ch===13) this.line++;
-        return ch;
+        let rs = handler(ch);
+        if(rs===RegularMatchResults.Empty|| rs=== RegularMatchResults.NotMatch){
+            if(this.EOF) return rs;
+            this.at--;
+        }
+        return rs;
     }
 
-    pushback(ch:number):ITextReader{
-        
-        if(this._pushedbackChar!==undefined) throw new Error("已经有一个Pushback字符了，不允许再pushback.");
-        if(this.EOF) return this;
-        //if(ch===this.EndChar) throw new Error("不允许Pushback终结符");
-        this._pushedbackChar=ch;
-        this.at--;
-        return this;
-    }
+    
 
     toString(){
         return this.raw;
@@ -116,28 +122,7 @@ export interface IRegularDescriptor{
     token?:string;
 }
 
-export enum RegularMatchResults{
-    
-    /**
-     * 不确定,中间态
-     */
-    Unkcertain,
 
-    /**
-     *已经匹配,最终态
-        */
-    Matched,
-
-    /** 
-     * 不匹配 ，终态
-     */
-    NotMatch,
-
-    /**
-     * 空匹配,终态
-     */
-    Empty
-}
 
 export interface IRegularMatch{
     at:number;
@@ -211,8 +196,8 @@ export class Regular{
     }
 
     CheckMatch(input:ITextReader):RegularMatchResults{
-        let ch = input.fetech();
-        let rs = this.InternalCheck(ch);
+        //let ch = input.fetech();
+        let rs = this.InternalCheck(input);
         if(rs===RegularMatchResults.Matched){
             let times = ++this._repeatedTimes;
             this.Reset();
@@ -226,12 +211,11 @@ export class Regular{
             return RegularMatchResults.Unkcertain;
         }
         else if(rs === RegularMatchResults.NotMatch || rs === RegularMatchResults.Empty){
-            //把当前字符退回到input去，下一个匹配要用这个字符开始
-            input.pushback(ch);
+            
             //获取出当前状态
             let times = this._repeatedTimes;
             
-            if(this._isRepeatCheck) {
+            if(this._isRepeatCheck|| input.EOF) {
                 if(times) return RegularMatchResults.Matched;
                 return RegularMatchResults.NotMatch;
             }
@@ -250,7 +234,7 @@ export class Regular{
         } 
     }
 
-    protected InternalCheck(ch:number):RegularMatchResults{
+    InternalCheck(input:ITextReader):RegularMatchResults{
         throw new Error("Abstract method");
     }
 
@@ -272,11 +256,11 @@ export class Regular{
 }
 
 export class CharsetRegular extends Regular{
-    _navigate:boolean;
+    private _navigate:boolean;
     Chars:string;
-    _code:number;
-    _minCode:number;
-    _maxCode :number;
+    private _code:number;
+    private _minCode:number;
+    private _maxCode :number;
     constructor(chars:string,des?:IRegularDescriptor|boolean|number|string){
         super(des as IRegularDescriptor);
         if(typeof des==='boolean') this._navigate= des as boolean;
@@ -293,23 +277,32 @@ export class CharsetRegular extends Regular{
         
     }
 
-    _CheckChar(ch:number):RegularMatchResults{
-        if (ch===this._code)
+    _CheckChar(input:ITextReader):RegularMatchResults{
+        return input.fetech((ch)=>{
+            if (ch===this._code)
             return this._navigate? RegularMatchResults.NotMatch:RegularMatchResults.Matched;
-        else return this._navigate? RegularMatchResults.Matched:RegularMatchResults.NotMatch;
+            else return this._navigate? RegularMatchResults.Matched:RegularMatchResults.NotMatch;
+        });
+        
     }
-    _CheckRange(ch:number):RegularMatchResults{
-        if(ch>=this._minCode && ch<=this._maxCode)
-            return this._navigate? RegularMatchResults.NotMatch:RegularMatchResults.Matched;
-        else return this._navigate? RegularMatchResults.Matched:RegularMatchResults.NotMatch;
+    _CheckRange(input:ITextReader):RegularMatchResults{
+        return input.fetech((ch)=>{
+            if(ch>=this._minCode && ch<=this._maxCode)
+                return this._navigate? RegularMatchResults.NotMatch:RegularMatchResults.Matched;
+            else return this._navigate? RegularMatchResults.Matched:RegularMatchResults.NotMatch;
+        });
+        
     }
-    _Check(ch:number):RegularMatchResults{
-        for(let i =0,j=this.Chars.length;i<j;i++){
-            if(this.Chars.charCodeAt(i)===ch){
-                return (this._navigate)?RegularMatchResults.NotMatch:RegularMatchResults.Matched;
+    _Check(input:ITextReader):RegularMatchResults{
+        return input.fetech((ch)=>{
+            for(let i =0,j=this.Chars.length;i<j;i++){
+                if(this.Chars.charCodeAt(i)===ch){
+                    return (this._navigate)?RegularMatchResults.NotMatch:RegularMatchResults.Matched;
+                }
             }
-        }
-        return (this._navigate)?RegularMatchResults.Matched:RegularMatchResults.NotMatch;
+            return (this._navigate)?RegularMatchResults.Matched:RegularMatchResults.NotMatch;
+        });
+        
     }
 
     toString(){
@@ -318,6 +311,84 @@ export class CharsetRegular extends Regular{
         return `[${this._navigate?"^":""}${this.Chars.replace(/[\/\-\[\]\{\}\*\+\?\^\\\(\)]/g,"\\$1")}]${super.toString()}`;
     }
 
+}
+
+export class LiteralRegular extends Regular{
+    Chars:string;
+    private _matchAt:number;
+    constructor(chars:string,des?:IRegularDescriptor|number){
+        if(chars.length==0) throw new Error("不可以输入空字符");
+        super(des);
+        this.Chars = chars;
+        this._matchAt=0;
+    }
+    Reset():LiteralRegular{
+        super.Reset();
+        this._matchAt=0;
+        return this;
+    }
+    InternalCheck(input:ITextReader):RegularMatchResults{
+        return input.fetech((ch)=>{
+            let code = this.Chars.charCodeAt(this._matchAt++);
+            if(ch===code) return this.Chars.length==this._matchAt?RegularMatchResults.Matched:RegularMatchResults.Unkcertain;
+            return RegularMatchResults.NotMatch;
+        });
+        
+    }
+    toString(braced?:boolean):string{
+        let des = super.toString();
+        return des?`(${this.Chars})${des}`:this.Chars;
+    }
+}
+
+export class PolyRegular extends Regular{
+    Regulars:Regular[];
+    constructor(des?:IRegularDescriptor|number){
+        super(des);
+        this.Regulars=[];
+    }
+    Charset(chars:string,des?:IRegularDescriptor|number):PolyRegular{
+        this.Regulars.push(new CharsetRegular(chars,des));
+        return this;
+    }
+
+    Literal(chars:string,des?:IRegularDescriptor|number):PolyRegular{
+        this.Regulars.push(new LiteralRegular(chars,des));
+        return this;
+    }
+}
+export class SequenceRegular extends PolyRegular{
+    _stepAt:number;
+    constructor(des?:IRegularDescriptor|number){
+        super(des);
+        this._stepAt=0;
+    }
+    Reset():SequenceRegular{
+        this._stepAt=0;
+        for(let i in this.Regulars) this.Regulars[i].Reset();
+        return super.Reset() as SequenceRegular;
+    }
+    
+    InternalCheck(input:ITextReader):RegularMatchResults{
+        let regular = this.Regulars[this._stepAt];
+        let isEnd = this._stepAt == this.Regulars.length-1;
+        let rs = regular.CheckMatch(input);
+        if(rs===RegularMatchResults.Matched || rs===RegularMatchResults.Empty){
+            if(isEnd) return RegularMatchResults.Matched;
+            this._stepAt++;return RegularMatchResults.Unkcertain;
+        }else return rs;
+        
+        
+    }
+    toString(braced?:boolean):string{
+        let str = "";
+        for(let i in this.Regulars){
+            str += this.Regulars[i].toString();
+        }
+        let des = super.toString();
+        if(des) return `(${str})${des}`;
+        return str;
+    }
 }
    
 //Lexical 文法生成token
