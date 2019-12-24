@@ -297,6 +297,6 @@ Unittest.Test("CharsetRegular",{
     ,"optional":(assert)=>{
         let reg = new OptionalRegular();
         reg.Charset("1-9",{minTimes:0}).Literal(",").Charset("abc",{minTimes:1});
-        let ctx = new RegularContext("1,d");
+        let ctx = new RegularContext("1,d");   
     }
 });
