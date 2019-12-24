@@ -94,16 +94,20 @@ export class StringTextReader implements ITextReader{
      */
     fetech(handler:(ch:number)=>RegularMatchResults):RegularMatchResults{
         let ch :number;
-        if(this.at===this.raw.length) { this.EOF = true;ch = this.end;return RegularMatchResults.NotMatch;}
+        if(this.EOF){return RegularMatchResults.NotMatch;}
         else {
             ch= this.raw.charCodeAt(this.at++);
             if(ch===13) this.line++;
+            if(this.at===this.raw.length) this.EOF=true;
         }
         let rs = handler(ch);
+        //if(this.EOF){this.at=this.raw.length; return rs;}
         if(rs===RegularMatchResults.Empty|| rs=== RegularMatchResults.NotMatch){
-            if(this.EOF) return rs;
             this.at--;
+            this.EOF=false;
         }
+            
+        
         return rs;
     }
 
@@ -180,6 +184,7 @@ export class Regular{
         while(true){
             let rs = this.CheckMatch(input);
             if(rs===RegularMatchResults.Empty || rs===RegularMatchResults.Matched){
+                this.Reset();
                 return {
                     input:input,
                     at:at,
@@ -188,10 +193,11 @@ export class Regular{
                     regular :this
                 }
             }else if(rs ===RegularMatchResults.NotMatch){
+                this.Reset();
                 return null;
             }
             // Uncertain,继续找
-            if(input.EOF) return;
+            
         }
     }
 
@@ -215,7 +221,8 @@ export class Regular{
             //获取出当前状态
             let times = this._repeatedTimes;
             
-            if(this._isRepeatCheck|| input.EOF) {
+            if(this._isRepeatCheck) {
+                this.Reset();
                 if(times) return RegularMatchResults.Matched;
                 return RegularMatchResults.NotMatch;
             }
@@ -227,9 +234,10 @@ export class Regular{
             this.Reset();
             this._repeatedTimes = times;
             this._isRepeatCheck=true;
-            return RegularMatchResults.Unkcertain;   
+            return RegularMatchResults.Unkcertain;
+            
         }else{
-            this._isRepeatCheck=false;
+            //this._isRepeatCheck=false;
             return RegularMatchResults.Unkcertain;
         } 
     }
@@ -250,7 +258,7 @@ export class Regular{
             else return "+";
         }else {
             if(this._minTimes=== this._maxTimes) return `{${this._minTimes}}`;
-            return `{${this._minTimes},${this._maxTimes}}`; 
+            return `{${this._minTimes},${this._maxTimes||""}}`; 
         }
     }
 }
@@ -358,7 +366,7 @@ export class PolyRegular extends Regular{
     }
 }
 export class SequenceRegular extends PolyRegular{
-    _stepAt:number;
+    private _stepAt:number;
     constructor(des?:IRegularDescriptor|number){
         super(des);
         this._stepAt=0;
@@ -371,25 +379,90 @@ export class SequenceRegular extends PolyRegular{
     
     InternalCheck(input:ITextReader):RegularMatchResults{
         let regular = this.Regulars[this._stepAt];
-        let isEnd = this._stepAt == this.Regulars.length-1;
         let rs = regular.CheckMatch(input);
         if(rs===RegularMatchResults.Matched || rs===RegularMatchResults.Empty){
-            if(isEnd) return RegularMatchResults.Matched;
+            if(this._stepAt == this.Regulars.length-1) return RegularMatchResults.Matched;
             this._stepAt++;return RegularMatchResults.Unkcertain;
         }else return rs;
-        
-        
+    }
+    optional(builder:(optional:OptionalRegular)=>void,des?:IRegularDescriptor|number):SequenceRegular{
+        let optional = new OptionalRegular(des);
+        this.Regulars.push(optional);
+        builder(optional);
+        return this;
     }
     toString(braced?:boolean):string{
         let str = "";
         for(let i in this.Regulars){
-            str += this.Regulars[i].toString();
+            let s= this.Regulars[i];
+            if(s instanceof OptionalRegular) str += `(${s.toString()})`;
+            else str += s.toString();
         }
         let des = super.toString();
         if(des) return `(${str})${des}`;
         return str;
     }
 }
+
+export class OptionalRegular extends PolyRegular{
+    private _liveRegulars:Regular[];
+    private _emptyRegular:Regular;
+    constructor(des?:IRegularDescriptor|number){
+        super(des);
+        
+    }
+    Reset():SequenceRegular{
+        this._liveRegulars=undefined;
+        this._emptyRegular=undefined;
+        for(let i in this.Regulars) {
+            this.Regulars[i].Reset();
+        }
+        return super.Reset() as SequenceRegular;
+    }
+
+    sequence(builder:(seq:SequenceRegular)=>void,des?:IRegularDescriptor|number):OptionalRegular{
+        let seq = new SequenceRegular(des);
+        this.Regulars.push(seq);
+        builder(seq);
+        return this;
+    }
+    
+    InternalCheck(input:ITextReader):RegularMatchResults{
+        let livedRegulars = this._liveRegulars ;
+        if(!livedRegulars){
+            livedRegulars = this._liveRegulars=[];
+            for(let i in this.Regulars) livedRegulars.push(this.Regulars[i]);
+        }
+        for(let i =0,j=livedRegulars.length;i<j;i++){
+            let regular = livedRegulars.shift();
+            let rs = regular.CheckMatch(input);
+            if(rs===RegularMatchResults.Unkcertain){
+                livedRegulars.push(regular);
+            } else if(rs===RegularMatchResults.Empty){
+                if(!this._emptyRegular) this._emptyRegular= regular;
+            }else if(rs===RegularMatchResults.Matched){
+                return rs;
+            }
+        }
+        if(livedRegulars.length===0){
+            return this._emptyRegular? RegularMatchResults.Empty:RegularMatchResults.NotMatch;
+        }
+        return RegularMatchResults.Unkcertain;
+        
+    }
+    toString(braced?:boolean):string{
+        let str = "";
+        for(let i in this.Regulars){
+            let s= this.Regulars[i];
+            if(s instanceof SequenceRegular) str += `(${s.toString()})`;
+            else str += s.toString();
+        }
+        let des = super.toString();
+        if(des) return `(${str})${des}`;
+        return str;
+    }
+}
+  
    
 //Lexical 文法生成token
 //syntax 生成语法

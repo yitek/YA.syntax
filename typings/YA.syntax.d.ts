@@ -141,9 +141,19 @@ export declare class PolyRegular extends Regular {
     Literal(chars: string, des?: IRegularDescriptor | number): PolyRegular;
 }
 export declare class SequenceRegular extends PolyRegular {
-    _stepAt: number;
+    private _stepAt;
     constructor(des?: IRegularDescriptor | number);
     Reset(): SequenceRegular;
+    InternalCheck(input: ITextReader): RegularMatchResults;
+    optional(builder: (optional: OptionalRegular) => void, des?: IRegularDescriptor | number): SequenceRegular;
+    toString(braced?: boolean): string;
+}
+export declare class OptionalRegular extends PolyRegular {
+    private _liveRegulars;
+    private _emptyRegular;
+    constructor(des?: IRegularDescriptor | number);
+    Reset(): SequenceRegular;
+    sequence(builder: (seq: SequenceRegular) => void, des?: IRegularDescriptor | number): OptionalRegular;
     InternalCheck(input: ITextReader): RegularMatchResults;
     toString(braced?: boolean): string;
 }

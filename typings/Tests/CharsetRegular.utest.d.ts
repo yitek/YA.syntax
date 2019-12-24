@@ -6,6 +6,11 @@ export interface ITestLogger {
     error(msg: string, err?: Error): any;
     warn(msg: string): any;
 }
+export declare class UnittestError extends Error {
+    outerMessage: string;
+    constructor(msg: string, outerMessage?: string);
+    toString(): string;
+}
 export declare class Unittest {
     _$members: {
         [name: string]: any;
